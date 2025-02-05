@@ -7,7 +7,7 @@ from tensorflow.keras.preprocessing import image
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.models import Model
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dropout, Dense, Flatten
+from tensorflow.keras.layers import Dropout, Dense, Flatten, GlobalAveragePooling2D
 from tensorflow.keras.models import load_model
 
 import warnings
@@ -60,9 +60,7 @@ train_datagen = ImageDataGenerator(rotation_range=10,
                                    validation_split=0.2)
 
 
-val_datagen = ImageDataGenerator(rescale = 1./255,
-                                 validation_split=0.5)
-
+test_datagen = ImageDataGenerator(rescale = 1./255) # No augmentation on test set
 
 
 batch_size = 32
@@ -71,27 +69,28 @@ img_size = (240, 360)
 train_set = train_datagen.flow_from_directory(train_dir, 
                                               class_mode='binary',
                                               batch_size = batch_size,
-                                              target_size=img_size)
+                                              target_size=img_size,
+                                              subset='training')
 
-test_set = val_datagen.flow_from_directory(test_dir, 
+validation_set = train_datagen.flow_from_directory(train_dir, 
+                                              class_mode='binary',
+                                              batch_size = batch_size,
+                                              target_size=img_size,
+                                              subset='validation')
+
+test_set = test_datagen.flow_from_directory(test_dir, 
                                            class_mode = 'binary',
                                            batch_size = batch_size, 
-                                           target_size=img_size,
-                                           subset= 'training')
+                                           target_size=img_size)
 
 import json
 
-class_names_dict = train_set.class_indices  # Get the mapping from the training set
+class_names_dict = train_set.class_indices
 with open("class_names.json", "w") as f:
     json.dump(class_names_dict, f)
 
-print("Class Indices (Saved):", class_names_dict)  # Print to confirm
-exit()
-val_set = val_datagen.flow_from_directory(test_dir, 
-                                          class_mode='binary',
-                                          batch_size = batch_size,
-                                          subset = 'validation',
-                                          target_size=img_size)
+print("Class Indices (Saved):", class_names_dict)
+
 
 img_shape = (240, 360, 3)
 
@@ -99,10 +98,10 @@ base_model = tf.keras.applications.MobileNetV2(input_shape=img_shape,
                                                include_top=False, 
                                                weights='imagenet')
 
-
+base_model.trainable = False  # Freeze initial layers
 
 model = tf.keras.Sequential([base_model,
-                             tf.keras.layers.Flatten(),
+                             GlobalAveragePooling2D(),  # Corrected: Global Average Pooling
                              tf.keras.layers.Dense(64, activation="relu"),
                              tf.keras.layers.Dropout(0.2),
                              tf.keras.layers.Dense(1, activation="sigmoid")                                     
@@ -112,20 +111,20 @@ model.compile(optimizer = 'adam',
               loss = 'binary_crossentropy',
               metrics = ['accuracy'])
 
-
-steps_per_epoch=int(len(train_set)/batch_size)
+steps_per_epoch=len(train_set) // batch_size
+validation_steps = len(validation_set) // batch_size
 
 history2 = model.fit(
     train_set,
-    epochs = 10,
-    validation_data = val_set,
+    epochs = 30, # Increased epochs
+    validation_data = validation_set, # Corrected validation data
     steps_per_epoch=steps_per_epoch,
+    validation_steps=validation_steps,
     verbose=1
 )
 
-# plot_graphs(history2, "accuracy")
-# plot_graphs(history2, "loss")
-     
+plot_graphs(history2, "accuracy")
+plot_graphs(history2, "loss")
 
 loss, accuracy = model.evaluate(test_set, verbose=False)
 print("Testing Accuracy:  {:.4f}".format(accuracy))

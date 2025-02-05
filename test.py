@@ -35,8 +35,7 @@ def test_tflite_model(tflite_file, image_path):
 
 # Example usage:
 tflite_file = "model.tflite"
-image_path = "dataset/test/R/R_10000.jpg" # A test image
-ORGANIC = False
+image_path = "dataset/TRAIN/R/R_300.jpg" # A test image
 
 prediction = test_tflite_model(tflite_file, image_path)
 
@@ -49,12 +48,10 @@ predicted_class = 1 if prediction >= threshold else 0  # Assuming prediction is 
 print(predicted_class)
 # 0 = Organic
 # 1 = Recyclable
-if ORGANIC == True and predicted_class == 0:
-    print("Correct Prediction: Organic")
-elif ORGANIC == False and predicted_class == 1:
-    print("Correct Prediction: Recyclable")
-else:
-    print("Incorrect Prediction")
+if  predicted_class == 0:
+    print("Organic")
+elif predicted_class == 1:
+    print("Recyclable")
 
 
 
