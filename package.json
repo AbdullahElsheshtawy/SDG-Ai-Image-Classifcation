@@ -1,0 +1,24 @@
+{
+  "name": "arduino-ai-image-classification",
+  "version": "1.0.0",
+  "description": "Organic vs Recyclable dataset was obtained from [kaggle](https://www.kaggle.com/datasets/techsash/waste-classification-data)",
+  "main": "index.js",
+  "scripts": {
+    "run": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AbdullahElsheshtawy/Arduino-Ai-Image-Classification.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AbdullahElsheshtawy/Arduino-Ai-Image-Classification/issues"
+  },
+  "homepage": "https://github.com/AbdullahElsheshtawy/Arduino-Ai-Image-Classification#readme",
+  "dependencies": {
+    "@tensorflow/tfjs-node": "^4.22.0"
+  }
+}
