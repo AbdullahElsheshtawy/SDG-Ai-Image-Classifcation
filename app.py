@@ -47,7 +47,8 @@ def processImage(imageData):
         stats["lastInferenceTime"] = time.time() - startTime
         stats["lastPrediction"] = float(outputData[0][0])
         stats["totalImagesProcessed"] += 1
-        logging.info(f"Processed Image in: {stats['lastInferenceTime']:.4f} seconds")
+        prediction = "Recyclable" if outputData >= 0.5 else "Organic"
+        logging.info(f"Image: {prediction}")
         return outputData
 
     except Exception as e:
@@ -91,7 +92,7 @@ def processImageStream(clientSocket: socket.socket):
             imageBuffer.extend(data)
 
             while len(imageBuffer) >= 4:
-                imageSize = struct.unpack("<I", imageBuffer[:4][0])
+                imageSize = struct.unpack("<I", imageBuffer[:4])[0]
                 if len(imageBuffer) < imageSize + 4:
                     break
 
@@ -100,16 +101,15 @@ def processImageStream(clientSocket: socket.socket):
 
                 processImage(imageData)
                 framesProcessed += 1
-                logging.info(f"Received Image {frames_processed}\n".encode())
 
                 elapsedTime = time.time() - startTime
                 if elapsedTime >= 1.0:
                     stats["fps"] = framesProcessed / elapsedTime
                     framesProcessed = 0
                     startTime = time.time()
-            if len(image_buffer) > 1024 * 1024 * 1024:  # If buffer grows too large
+            if len(imageBuffer) > 1024 * 1024 * 1024:  # If buffer grows too large
                 logging.warning("Buffer overflow risk! Clearing buffer.")
-                image_buffer.clear()
+                imageBuffer.clear()
 
     except Exception as e:
         logging.error(f"Stream Processing Error: {e}")
