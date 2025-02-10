@@ -4,19 +4,15 @@ import time
 import os
 
 
-def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O"):
+def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/R/"):
     """Send test images to the server via TCP."""
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_socket.connect((host, port))
         print(f"Connected to server at {host}:{port}")
 
-        for i in range(1, num_images + 1):
-            image_path = os.path.join(image_dir, f"O_{i}.jpg")
-
-            if not os.path.exists(image_path):
-                print(f"Skipping: {image_path} not found.")
-                continue
+        for i in range(1,num_images + 1):
+            image_path = os.path.join(image_dir, f"R_{i + i}.jpg")
 
             with open(image_path, "rb") as f:
                 image_bytes = f.read()
@@ -26,13 +22,6 @@ def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O
             client_socket.sendall(image_bytes)  # Send image data
 
             print(f"Sent Image {i}: {image_path} ({image_size} bytes)")
-
-            # Optional: Wait for server response
-            try:
-                response = client_socket.recv(1024).decode()
-                print(f"Server Response: {response}")
-            except socket.timeout:
-                print("No response from server (timeout).")
 
             time.sleep(1)  # Simulate a delay between sends
 
@@ -45,4 +34,4 @@ def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O
 
 
 if __name__ == "__main__":
-    send_images(host="192.168.100.38", port=5001, num_images=10)
+    send_images(host="192.168.100.38", port=5001, num_images=1000)
