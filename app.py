@@ -21,6 +21,8 @@ stats = {
 }
 
 
+lock = threading.Lock()
+
 interpreter = tf.lite.Interpreter(model_path="model/model.tflite")
 interpreter.allocate_tensors()
 inputDetails = interpreter.get_input_details()
@@ -44,9 +46,10 @@ def processImage(imageData):
         interpreter.invoke()
         outputData = interpreter.get_tensor(outputDetails[0]["index"])
 
-        stats["lastInferenceTime"] = time.time() - startTime
-        stats["lastPrediction"] = float(outputData[0][0])
-        stats["totalImagesProcessed"] += 1
+        with lock:
+            stats["lastInferenceTime"] = time.time() - startTime
+            stats["lastPrediction"] = float(outputData[0][0])
+            stats["totalImagesProcessed"] += 1
         prediction = "Recyclable" if outputData >= 0.5 else "Organic"
         logging.info(f"Image: {prediction}")
         return outputData
@@ -58,7 +61,6 @@ def processImage(imageData):
 
 def handle_arduino_connection(host="0.0.0.0", port=5001):
     """Handle TCP Connection From Arduino"""
-
     serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     serverSocket.bind((host, port))
     serverSocket.listen(1)
@@ -67,13 +69,15 @@ def handle_arduino_connection(host="0.0.0.0", port=5001):
     while True:
         try:
             clientSocket, addr = serverSocket.accept()
-            stats["connectionStatus"] = f"Connected to {addr}"
+            with lock:
+                stats["connectionStatus"] = f"Connected to {addr}"
             logging.info(f"Connected to Arduino at {addr}")
 
             processImageStream(clientSocket)
         except Exception as e:
             logging.error(f"Connection Error: {e}")
-            stats["connectionStatus"] = "Error" + str(e)
+            with lock:
+                stats["connectionStatus"] = "Error" + str(e)
             time.sleep(1)
 
 
@@ -104,7 +108,8 @@ def processImageStream(clientSocket: socket.socket):
 
                 elapsedTime = time.time() - startTime
                 if elapsedTime >= 1.0:
-                    stats["fps"] = framesProcessed / elapsedTime
+                    with lock:
+                        stats["fps"] = framesProcessed / elapsedTime
                     framesProcessed = 0
                     startTime = time.time()
             if len(imageBuffer) > 1024 * 1024 * 1024:  # If buffer grows too large
@@ -116,7 +121,8 @@ def processImageStream(clientSocket: socket.socket):
 
     finally:
         clientSocket.close()
-        stats["connectionStatus"] = "Disconnected"
+        with lock:
+            stats["connectionStatus"] = "Disconnected"
         logging.info("Arduino Disconnected")
 
 
@@ -127,11 +133,11 @@ def index():
 
 @app.route("/stats")
 def getStats():
-    return jsonify(stats)
+    with lock:
+        return jsonify(stats)
 
 
 if __name__ == "__main__":
-    arduinoThread = threading.Thread(target=handle_arduino_connection)
+    arduinoThread = threading.Thread(target=handle_arduino_connection, daemon=True)
     arduinoThread.start()
-
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False, threaded=True)
