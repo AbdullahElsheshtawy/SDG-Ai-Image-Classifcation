@@ -9,7 +9,8 @@ def sendImages(host, port=5001, numImages=10):
 
     try: 
         for i in range(numImages):
-            imageBytes = Image.open(f'model/dataset/TRAIN/O/O_{numImages}.jpg').tobytes()
+            with open(f'model/dataset/TRAIN/O/O_{numImages}.jpg', 'rb') as f:
+                imageBytes = f.read()  
             clientSocket.sendall(imageBytes)
             print(f"Sent Image {i+1}")
             time.sleep(1)
