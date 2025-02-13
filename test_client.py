@@ -1,37 +1,44 @@
 import socket
-import struct
-import time
 import os
+import logging
+from PIL import Image
+import io
 
 
-def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/R/"):
-    """Send test images to the server via TCP."""
+def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O/"):
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client_socket.connect((host, port))
-        print(f"Connected to server at {host}:{port}")
+        logging.info(f"Connected to server at {host}:{port}")
 
-        for i in range(1,num_images + 1):
-            image_path = os.path.join(image_dir, f"R_{i + i}.jpg")
+        for i in range(1, num_images + 1):
+            image_path = os.path.join(image_dir, f"O_{i + i}.jpg")
 
-            with open(image_path, "rb") as f:
-                image_bytes = f.read()
+            try:
+                img = Image.open(image_path).convert("RGB")
+                img = img.resize((177, 144), Image.LANCZOS)
+                img_bytes = img.tobytes()
+                client_socket.sendall(img_bytes)
 
-            image_size = len(image_bytes)
-            client_socket.sendall(struct.pack("<I", image_size))  # Send size first
-            client_socket.sendall(image_bytes)  # Send image data
+                logging.info(f"Sent Image {i}: {image_path} ({len(img_bytes)} bytes)")
 
-            print(f"Sent Image {i}: {image_path} ({image_size} bytes)")
-
-            time.sleep(1)  # Simulate a delay between sends
+            except FileNotFoundError:
+                logging.error(f"Image not found: {image_path}")
+            except OSError as e:
+                logging.error(f"Image Error: {e}")
+            except Exception as e:
+                logging.error(f"Error processing image {image_path}: {e}")
 
     except Exception as e:
-        print(f"Error: {e}")
+        logging.error(f"Error: {e}")
 
     finally:
-        client_socket.close()
-        print("Connection closed.")
+        # Check if client_socket exists
+        if "client_socket" in locals() and client_socket is not None:
+            client_socket.close()
+            logging.info("Connection closed.")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     send_images(host="192.168.100.38", port=5001, num_images=1000)
