@@ -12,7 +12,7 @@ def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O
         logging.info(f"Connected to server at {host}:{port}")
 
         for i in range(1, num_images + 1):
-            image_path = os.path.join(image_dir, f"O_{i + i}.jpg")
+            image_path = os.path.join(image_dir, f"O_{i}.jpg")
 
             try:
                 img = Image.open(image_path).convert("RGB")
