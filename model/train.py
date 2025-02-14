@@ -78,7 +78,7 @@ base_model = tf.keras.applications.MobileNetV2(
     input_shape=img_shape, include_top=False, weights="imagenet"
 )
 # Important to freeze the layers
-base_model.trainable = False
+# base_model.trainable = False
 
 model = tf.keras.Sequential(
     [
@@ -97,7 +97,7 @@ validation_steps = len(validation_set) // batch_size
 
 history2 = model.fit(
     train_set,
-    epochs=50,
+    epochs=30,
     validation_data=validation_set,
     steps_per_epoch=steps_per_epoch,
     validation_steps=validation_steps,
