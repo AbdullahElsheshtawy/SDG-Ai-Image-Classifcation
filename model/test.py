@@ -33,7 +33,7 @@ def main():
     ORGANIC = 0
     RECYCLABLE = 1
 
-    model = load_model("model/tfmodel")
+    model = load_model("model/saved_model")
 
     test_dir = "model/dataset/TEST/"
     recyclable_dir = os.path.join(test_dir, "R")

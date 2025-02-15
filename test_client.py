@@ -2,8 +2,6 @@ import socket
 import os
 import logging
 from PIL import Image
-import io
-
 
 def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O/"):
     try:
@@ -41,4 +39,4 @@ def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    send_images(host="0.0.0.0", port=5001, num_images=1000)
+    send_images(host="127.0.0.1", port=5001, num_images=1000)

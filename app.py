@@ -4,8 +4,6 @@ import numpy as np
 import socket
 import threading
 import time
-import io
-import struct
 import logging
 from PIL import Image
 
@@ -21,7 +19,7 @@ stats = {
 
 lock = threading.Lock()
 
-model = tf.saved_model.load("model/tfmodel")
+model = tf.saved_model.load("model/saved_model")
 model = model.signatures["serving_default"]
 
 
