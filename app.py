@@ -1,127 +1,166 @@
-from flask import Flask, render_template, jsonify
 import tensorflow as tf
 import numpy as np
-import socket
-import threading
-import time
+import asyncio
 import logging
 from PIL import Image
+import time
+from quart import Quart, jsonify, render_template
+from collections import defaultdict
 
-logging.basicConfig(level=logging.INFO)
-app = Flask(__name__)
-stats = {
-    "totalImagesProcessed": 0,
-    "lastInferenceTime": 0,
-    "lastPrediction": None,
-    "connectionStatus": "Disconnected",
-    "fps": 0,
-}
-
-lock = threading.Lock()
-
+app = Quart(__name__)
 model = tf.saved_model.load("model/saved_model")
 model = model.signatures["serving_default"]
 
+IMAGE_SIZE = 128
+IMAGE_SIZE_IN_BYTES = IMAGE_SIZE * IMAGE_SIZE * 3
 
-def processImage(imageData):
-    """Process image with TensorFlow saved model"""
+
+class Stats:
+    def __init__(self):
+        self._data = {
+            "totalImagesProcessed": 0,
+            "lastInferenceTime": defaultdict(float),
+            "lastPrediction": {},
+            "connections": {},
+            "fps": defaultdict(float),
+        }
+        self._lock = asyncio.Lock()
+
+    async def Update(self, clientId, **kwargs):
+        async with self._lock:
+            for key, value in kwargs.items():
+                if key in self._data:
+                    if isinstance(self._data[key], dict):
+                        self._data[key][clientId] = value
+                    else:
+                        self._data[key] += value
+
+    async def GetStats(self):
+        async with self._lock:
+            activeConnections = len(
+                [v for v in self._data["connections"].values() if v == "Connected"]
+            )
+            avgFps = sum(self._data["fps"].values()) / max(activeConnections, 1)
+            return {
+                "totalImagesProcessed": self._data["totalImagesProcessed"],
+                "activeConnections": activeConnections,
+                "connectionDetails": dict(self._data["connections"]),
+                "averageFPS": round(avgFps, 2),
+                "lastPredictions": dict(self._data["lastPrediction"]),
+                "lastInferenceTimes": {
+                    k: round(v, 3) for k, v in self._data["lastInferenceTime"].items()
+                },
+            }
+
+
+stats = Stats()
+
+
+async def processImage(imageData, clientId):
     try:
-        image = Image.frombytes("RGB", (177, 144), imageData)
-        assert image.size == (177, 144)
-
+        image = Image.frombytes("RGB", (IMAGE_SIZE, IMAGE_SIZE), imageData)
+        assert image.size == (IMAGE_SIZE, IMAGE_SIZE)
         inputData = np.array(image, dtype=np.float32) / 255.0
         inputData = np.expand_dims(inputData, axis=0)
 
         startTime = time.time()
-
         result = model(tf.constant(inputData))
+
         if isinstance(result, dict):
             result = result["output_0"]
-
         result = result.numpy().item()
-        with lock:
-            stats["lastInferenceTime"] = time.time() - startTime
-            stats["lastPrediction"] = float(result)
-            stats["totalImagesProcessed"] += 1
-        prediction = "Recyclable" if result >= 0.5 else "Organic"
-        logging.info(f"Image: {prediction}")
-        return result
 
+        inferenceTime = time.time() - startTime
+        prediction = "Recyclable" if result >= 0.5 else "Organic"
+
+        await stats.Update(
+            clientId,
+            totalImagesProcessed=1,
+            lastInferenceTime=inferenceTime,
+            lastPrediction=prediction,
+        )
+
+        logging.info(f"Client {clientId}: {prediction}")
+        return result
     except Exception as e:
-        logging.error(f"Error processing image: {e}")
-        print(f"Exception details: {type(e).__name__}: {str(e)}")
+        logging.error(f"Error Processing image: {e}")
         return None
 
 
-def handle_arduino_connection(host="0.0.0.0", port=5001):
-    """Handle TCP Connection From Arduino"""
-    serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    serverSocket.bind((host, port))
-    serverSocket.listen(1)
-    logging.info(f"Listening for Arduino connection on port {port}")
+async def HandleClient(reader, writer):
+    addr = writer.get_extra_info("peername")
+    clientId = f"{addr[0]}:{addr[1]}"
 
-    while True:
-        try:
-            clientSocket, addr = serverSocket.accept()
-            with lock:
-                stats["connectionStatus"] = f"Connected to {addr}"
-            logging.info(f"Connected to Arduino at {addr}")
-
-            processImageStream(clientSocket)
-        except Exception as e:
-            logging.error(f"Connection Error: {e}")
-            with lock:
-                stats["connectionStatus"] = "Error" + str(e)
-
-
-def processImageStream(clientSocket: socket.socket):
     imageBuffer = bytearray()
     framesProcessed = 0
     startTime = time.time()
 
+    logging.info(f"New connection from {clientId}")
+    await stats.Update(clientId, connections={clientId: "Connected"})
+
     try:
         while True:
-            data = clientSocket.recv(4096)
+            data = await reader.read(4096)
             if not data:
                 break
+
             imageBuffer.extend(data)
 
-            while len(imageBuffer) >= 177 * 144 * 3:
-                imageData = imageBuffer[: 177 * 144 * 3]
-                imageBuffer = imageBuffer[177 * 144 * 3 :]
+            while len(imageBuffer) >= IMAGE_SIZE_IN_BYTES:
+                imageData = imageBuffer[:IMAGE_SIZE_IN_BYTES]
+                imageBuffer = imageBuffer[IMAGE_SIZE_IN_BYTES:]
 
-                processImage(imageData)
+                await processImage(imageData, clientId)
+
                 framesProcessed += 1
                 elapsedTime = time.time() - startTime
 
                 if elapsedTime >= 1.0:
-                    with lock:
-                        stats["fps"] = framesProcessed / elapsedTime
-                        framesProcessed = 0
-                        startTime = time.time()
+                    await stats.Update(clientId, fps=framesProcessed / elapsedTime)
+                    framesProcessed = 0
+                    startTime = time.time()
 
     except Exception as e:
-        logging.error(f"Stream Processing Error: {e}")
+        logging.error(f"Error handling client: {e}")
 
     finally:
-        clientSocket.close()
-        with lock:
-            stats["connectionStatus"] = "Disconnected"
-        logging.info("Arduino Disconnected")
+        writer.close()
+        await writer.wait_closed()
+        await stats.Update(clientId, connections={clientId: "Disconnected"})
+        logging.info(f"Client {clientId}: Disconnected")
+
+
+async def RunServer():
+    server = await asyncio.start_server(
+        HandleClient,
+        "0.0.0.0",
+        5001,
+        backlog=100,
+    )
+
+    addr = server.sockets[0].getsockname()
+    logging.info(f"Serving on: {addr}")
+
+    async with server:
+        await server.serve_forever()
 
 
 @app.route("/")
-def index():
-    return render_template("index.html")
+async def Index():
+    return await render_template("index.html")
 
 
 @app.route("/stats")
-def getStats():
-    with lock:
-        return jsonify(stats)
+async def GetStats():
+    return jsonify(await stats.GetStats())
 
 
 if __name__ == "__main__":
-    arduinoThread = threading.Thread(target=handle_arduino_connection, daemon=True)
-    arduinoThread.start()
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False, threaded=True)
+    logging.basicConfig(level=logging.INFO)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(RunServer())
+
+    app.run(host="0.0.0.0", port=5000, use_reloader=True)
