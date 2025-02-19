@@ -7,6 +7,7 @@ from PIL import Image
 import time
 from quart import Quart, jsonify, render_template
 from collections import defaultdict
+from hypercorn.asyncio import Config, serve
 
 app = Quart(__name__)
 
@@ -118,7 +119,6 @@ async def processImage(imageData, clientId) -> str:
         prediction = "Recyclable" if result >= 0.5 else "Organic"
 
         await stats.FinishedProcessingImage(clientId, inferenceTime, prediction)
-        logging.info(f"Client {clientId}: {prediction}")
         return prediction
     except Exception as e:
         logging.error(f"Error Processing image: {e}")
@@ -131,8 +131,6 @@ async def HandleClient(reader, writer):
 
     imageBuffer = bytearray()
     startTime = time.time()
-
-    logging.info(f"New connection from {clientId}")
 
     await stats.Connected(clientId)
 
@@ -168,7 +166,6 @@ async def HandleClient(reader, writer):
             logging.error(f"Closing connection with {clientId}: {e}")
 
         await stats.Disconnected(clientId)
-        logging.info(f"Client {clientId}: Disconnected")
 
 
 async def RunServer():
@@ -208,9 +205,14 @@ if __name__ == "__main__":
     async def Shutdown():
         if hasattr(app, "tcp_server"):
             app.tcp_server.cancel()
+            app.fps_task.cancel()
             try:
                 await app.tcp_server
+                await app.fps_task
             except asyncio.CancelledError:
                 pass
 
-    app.run(host="0.0.0.0", port=5000, use_reloader=True)
+    config = Config()
+    config.bind = ["0.0.0.0:5000"]
+
+    asyncio.run(serve(app, config))
