@@ -19,6 +19,12 @@ def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O
                 img_bytes = img.tobytes()
                 client_socket.sendall(img_bytes)
 
+                response = client_socket.recv(1024)
+                if response:
+                    prediction = response.decode("utf-8")
+                    logging.info(f"Recieved prediction for image {i}: {prediction}")
+                else:
+                    logging.error(f"No repsonse recieved for image {i}")
                 logging.info(f"Sent Image {i}: {image_path} ({len(img_bytes)} bytes)")
 
             except FileNotFoundError:
