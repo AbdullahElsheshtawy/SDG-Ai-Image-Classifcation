@@ -1,3 +1,4 @@
+import asyncio.base_tasks
 import tensorflow as tf
 import numpy as np
 import asyncio
@@ -8,80 +9,117 @@ from quart import Quart, jsonify, render_template
 from collections import defaultdict
 
 app = Quart(__name__)
-model = tf.saved_model.load("model/saved_model")
-model = model.signatures["serving_default"]
 
 IMAGE_SIZE = 128
 IMAGE_SIZE_IN_BYTES = IMAGE_SIZE * IMAGE_SIZE * 3
 
 
+class Model:
+    def __init__(self):
+        model = tf.saved_model.load("model/saved_model")
+        model = model.signatures["serving_default"]
+        self.model = model
+
+    def Predict(self, inputTensor):
+        return self.model(inputTensor)
+
+
+model = Model()
+
+
 class Stats:
     def __init__(self):
-        self._data = {
-            "totalImagesProcessed": 0,
-            "lastInferenceTime": defaultdict(float),
-            "lastPrediction": {},
-            "connections": {},
-            "fps": defaultdict(float),
-        }
-        self._lock = asyncio.Lock()
+        self.totalImagesProcessed = 0
+        self.lastInferenceTime = 0.0
+        self.lastPrediction = "-"
+        self.fps = 0.0
+        self.framesProcessed = 0
+        self.activeConnections = 0
+        self.connectionDetails = defaultdict(
+            lambda: {"lastInferenceTime": 0.0, "lastPrediction": "-"}
+        )
+        self.lock = asyncio.Lock()
 
-    async def Update(self, clientId, **kwargs):
-        async with self._lock:
-            for key, value in kwargs.items():
-                if key in self._data:
-                    if isinstance(self._data[key], dict):
-                        self._data[key][clientId] = value
-                    else:
-                        self._data[key] += value
+    async def FinishedProcessingImage(
+        self,
+        clientId: str,
+        inferenceTime: float,
+        prediction: str,
+    ):
+        async with self.lock:
+            self.totalImagesProcessed += 1
+            self.lastInferenceTime = inferenceTime
+            self.lastPrediction = prediction
+            self.connectionDetails[clientId] = {
+                "lastInferenceTime": inferenceTime,
+                "lastPrediction": prediction,
+            }
+            self.framesProcessed += 1
+
+    async def Connected(self, clientId: str):
+        async with self.lock:
+            self.activeConnections += 1
+            if clientId not in self.connectionDetails:
+                self.connectionDetails[clientId] = {
+                    "lastInferenceTime": 0.0,
+                    "lastPrediction": "-",
+                }
+
+    async def Disconnected(self, clientId: str):
+        async with self.lock:
+            self.activeConnections -= 1
+            if clientId in self.connectionDetails:
+                del self.connectionDetails[clientId]
 
     async def GetStats(self):
-        async with self._lock:
-            activeConnections = len(
-                [v for v in self._data["connections"].values() if v == "Connected"]
-            )
-            avgFps = sum(self._data["fps"].values()) / max(activeConnections, 1)
-            return {
-                "totalImagesProcessed": self._data["totalImagesProcessed"],
-                "activeConnections": activeConnections,
-                "connectionDetails": dict(self._data["connections"]),
-                "averageFPS": round(avgFps, 2),
-                "lastPredictions": dict(self._data["lastPrediction"]),
-                "lastInferenceTimes": {
-                    k: round(v, 3) for k, v in self._data["lastInferenceTime"].items()
-                },
-            }
+        return {
+            "totalImagesProcessed": self.totalImagesProcessed,
+            "activeConnections": self.activeConnections,
+            "FPS": self.fps,
+            "lastPredicted": self.lastPrediction,
+            "inferenceTime": self.lastInferenceTime,
+            "connectionDetails": self.connectionDetails,
+        }
 
 
 stats = Stats()
 
 
-async def processImage(imageData, clientId):
+async def fps_updater():
+    while True:
+        await asyncio.sleep(1.0)
+        async with stats.lock:
+            # Capture the count and reset
+            current_frames = stats.framesProcessed
+            stats.fps = current_frames
+            stats.framesProcessed = 0
+
+
+async def processImage(imageData, clientId) -> str:
     try:
         image = Image.frombytes("RGB", (IMAGE_SIZE, IMAGE_SIZE), imageData)
         assert image.size == (IMAGE_SIZE, IMAGE_SIZE)
-        inputData = np.array(image, dtype=np.float32) / 255.0
+        inputData = (
+            np.frombuffer(image.tobytes(), dtype=np.uint8)
+            .reshape((IMAGE_SIZE, IMAGE_SIZE, 3))
+            .astype(np.float32)
+            / 255.0
+        )
         inputData = np.expand_dims(inputData, axis=0)
 
         startTime = time.time()
-        result = model(tf.constant(inputData))
+        result = model.Predict(tf.constant(inputData))
 
         if isinstance(result, dict):
             result = result["output_0"]
         result = result.numpy().item()
 
-        inferenceTime = time.time() - startTime
+        inferenceTime = (time.time() - startTime) * 1000
         prediction = "Recyclable" if result >= 0.5 else "Organic"
 
-        await stats.Update(
-            clientId,
-            totalImagesProcessed=1,
-            lastInferenceTime=inferenceTime,
-            lastPrediction=prediction,
-        )
-
+        await stats.FinishedProcessingImage(clientId, inferenceTime, prediction)
         logging.info(f"Client {clientId}: {prediction}")
-        return result
+        return prediction
     except Exception as e:
         logging.error(f"Error Processing image: {e}")
         return None
@@ -92,11 +130,11 @@ async def HandleClient(reader, writer):
     clientId = f"{addr[0]}:{addr[1]}"
 
     imageBuffer = bytearray()
-    framesProcessed = 0
     startTime = time.time()
 
     logging.info(f"New connection from {clientId}")
-    await stats.Update(clientId, connections={clientId: "Connected"})
+
+    await stats.Connected(clientId)
 
     try:
         while True:
@@ -110,23 +148,26 @@ async def HandleClient(reader, writer):
                 imageData = imageBuffer[:IMAGE_SIZE_IN_BYTES]
                 imageBuffer = imageBuffer[IMAGE_SIZE_IN_BYTES:]
 
-                await processImage(imageData, clientId)
-
-                framesProcessed += 1
+                prediction = await processImage(imageData, clientId)
+                writer.write(f"{prediction}".encode())
+                await writer.drain()
                 elapsedTime = time.time() - startTime
 
                 if elapsedTime >= 1.0:
-                    await stats.Update(clientId, fps=framesProcessed / elapsedTime)
-                    framesProcessed = 0
                     startTime = time.time()
-
+    except (ConnectionResetError, asyncio.CancelledError) as e:
+        logging.warning(f"Connection with {clientId} was closed: {e}")
     except Exception as e:
         logging.error(f"Error handling client: {e}")
 
     finally:
-        writer.close()
-        await writer.wait_closed()
-        await stats.Update(clientId, connections={clientId: "Disconnected"})
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception as e:
+            logging.error(f"Closing connection with {clientId}: {e}")
+
+        await stats.Disconnected(clientId)
         logging.info(f"Client {clientId}: Disconnected")
 
 
@@ -158,9 +199,18 @@ async def GetStats():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    @app.before_serving
+    async def Startup():
+        app.tcp_server = asyncio.create_task(RunServer())
+        app.fps_task = asyncio.create_task(fps_updater())
 
-    loop.run_until_complete(RunServer())
+    @app.after_serving
+    async def Shutdown():
+        if hasattr(app, "tcp_server"):
+            app.tcp_server.cancel()
+            try:
+                await app.tcp_server
+            except asyncio.CancelledError:
+                pass
 
     app.run(host="0.0.0.0", port=5000, use_reloader=True)
