@@ -3,6 +3,7 @@ import os
 import logging
 from PIL import Image
 
+
 def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O/"):
     try:
         client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -14,10 +15,16 @@ def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O
 
             try:
                 img = Image.open(image_path).convert("RGB")
-                img = img.resize((177, 144), Image.LANCZOS)
+                img = img.resize((128, 128), Image.LANCZOS)
                 img_bytes = img.tobytes()
                 client_socket.sendall(img_bytes)
 
+                response = client_socket.recv(1024)
+                if response:
+                    prediction = response.decode("utf-8")
+                    logging.info(f"Recieved prediction for image {i}: {prediction}")
+                else:
+                    logging.error(f"No repsonse recieved for image {i}")
                 logging.info(f"Sent Image {i}: {image_path} ({len(img_bytes)} bytes)")
 
             except FileNotFoundError:
