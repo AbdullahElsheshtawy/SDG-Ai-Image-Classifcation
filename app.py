@@ -8,6 +8,7 @@ import time
 from quart import Quart, jsonify, render_template
 from collections import defaultdict
 from hypercorn.asyncio import Config, serve
+import socket
 
 app = Quart(__name__)
 
@@ -183,6 +184,24 @@ async def RunServer():
         await server.serve_forever()
 
 
+async def BroadcastIP():
+    UDP_IP = "255.255.255.255"
+    UDP_PORT = 8888
+    SERVER_PORT = 5001
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+    serverIP = socket.gethostbyname(socket.gethostname())
+
+    message = f"SERVER_ANNOUNCE:{serverIP}".encode()
+
+    while True:
+        sock.sendto(message, (UDP_IP, UDP_PORT))
+        logging.info(f"Broadcasted server IP: {serverIP}")
+        await asyncio.sleep(5)
+
+
 @app.route("/")
 async def Index():
     return await render_template("index.html")
@@ -200,12 +219,14 @@ if __name__ == "__main__":
     async def Startup():
         app.tcp_server = asyncio.create_task(RunServer())
         app.fps_task = asyncio.create_task(fps_updater())
+        app.broadcast_task = asyncio.create_task(BroadcastIP())
 
     @app.after_serving
     async def Shutdown():
         if hasattr(app, "tcp_server"):
             app.tcp_server.cancel()
             app.fps_task.cancel()
+            app.broadcast_task.cancel()
             try:
                 await app.tcp_server
                 await app.fps_task
