@@ -11,7 +11,7 @@ def load_model(model_path):
 
 def test(model, image_path, expected):
     img = cv2.imread(image_path)
-    img_resized = cv2.resize(img, (177, 144))
+    img_resized = cv2.resize(img, (125, 125))
     img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
     img_normalized = img_rgb.astype(np.float32) / 255.0
     img_input = np.expand_dims(img_normalized, axis=0).astype(np.float32)

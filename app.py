@@ -1,4 +1,3 @@
-import asyncio.base_tasks
 import tensorflow as tf
 import numpy as np
 import asyncio
@@ -13,7 +12,7 @@ import socket
 app = Quart(__name__)
 
 IMAGE_SIZE = 128
-IMAGE_SIZE_IN_BYTES = IMAGE_SIZE * IMAGE_SIZE * 3
+IMAGE_SIZE_IN_BYTES = IMAGE_SIZE * IMAGE_SIZE * 2
 
 
 class Model:
@@ -97,9 +96,23 @@ async def fps_updater():
             stats.framesProcessed = 0
 
 
-async def processImage(imageData, clientId) -> bytes:
+def RGB565ToRGB8(imageData: bytes) -> bytes:
+    arr = np.frombuffer(imageData, dtype=np.uint16)  # Load as uint16 array
+    r = (arr >> 11) & 0x1F
+    g = (arr >> 5) & 0x3F
+    b = arr & 0x1F
+
+    r = (r << 3).astype(np.uint8)  # Convert 5-bit to 8-bit
+    g = (g << 2).astype(np.uint8)  # Convert 6-bit to 8-bit
+    b = (b << 3).astype(np.uint8)  # Convert 5-bit to 8-bit
+
+    return np.stack((r, g, b), axis=-1)  # Stack channels to form an RGB image
+
+
+async def processImage(imageData: bytes, clientId) -> bytes:
     try:
-        image = Image.frombytes("RGB", (IMAGE_SIZE, IMAGE_SIZE), imageData)
+        rgb565Data = RGB565ToRGB8(imageData)
+        image = Image.frombytes("RGB", (IMAGE_SIZE, IMAGE_SIZE), rgb565Data)
         assert image.size == (IMAGE_SIZE, IMAGE_SIZE)
         inputData = (
             np.frombuffer(image.tobytes(), dtype=np.uint8)
@@ -120,7 +133,7 @@ async def processImage(imageData, clientId) -> bytes:
         prediction = "Recyclable" if result >= 0.5 else "Organic"
 
         await stats.FinishedProcessingImage(clientId, inferenceTime, prediction)
-        return b'\x01' if result > 0.5 else b'\x00'
+        return b"\x01" if result > 0.5 else b"\x00"
     except Exception as e:
         logging.error(f"Error Processing image: {e}")
         return None
@@ -134,7 +147,6 @@ async def HandleClient(reader, writer):
     startTime = time.time()
 
     await stats.Connected(clientId)
-    
 
     try:
         while True:
@@ -231,6 +243,7 @@ if __name__ == "__main__":
             try:
                 await app.tcp_server
                 await app.fps_task
+                await app.broadcast_task
             except asyncio.CancelledError:
                 pass
 

@@ -1,7 +1,17 @@
 import socket
 import os
 import logging
+import numpy as np
 from PIL import Image
+
+
+def image_to_rgb565(img):
+    arr = np.array(img)  # Convert to NumPy array *(H, W, 3)*
+    r = (arr[:, :, 0] >> 3).astype(np.uint16)  # 5 bits
+    g = (arr[:, :, 1] >> 2).astype(np.uint16)  # 6 bits
+    b = (arr[:, :, 2] >> 3).astype(np.uint16)  # 5 bits
+    rgb565 = (r << 11) | (g << 5) | b
+    return rgb565.astype(np.uint16).tobytes()  # Convert to bytes
 
 
 def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O/"):
@@ -16,13 +26,13 @@ def send_images(host, port=5001, num_images=10, image_dir="model/dataset/TRAIN/O
             try:
                 img = Image.open(image_path).convert("RGB")
                 img = img.resize((128, 128), Image.LANCZOS)
-                img_bytes = img.tobytes()
+                img_bytes = image_to_rgb565(img)
                 client_socket.sendall(img_bytes)
 
-                response = client_socket.recv(1)
+                response: bytes = client_socket.recv(1)
                 if response:
-                    prediction = ord(response)
-                    logging.info(f"Recieved prediction for image {i}: {prediction}")
+                    result = ord(response)
+                    logging.info(f"Recieved prediction for image {i}: {result}")
                 else:
                     logging.error(f"No repsonse recieved for image {i}")
                 logging.info(f"Sent Image {i}: {image_path} ({len(img_bytes)} bytes)")
