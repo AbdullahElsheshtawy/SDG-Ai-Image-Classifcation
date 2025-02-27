@@ -143,6 +143,12 @@ async def HandleClient(reader, writer):
     addr = writer.get_extra_info("peername")
     clientId = f"{addr[0]}:{addr[1]}"
 
+    sock: socket.socket = writer.get_extra_info('socket')
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+
     imageBuffer = bytearray()
     startTime = time.time()
 
@@ -167,17 +173,17 @@ async def HandleClient(reader, writer):
 
                 if elapsedTime >= 1.0:
                     startTime = time.time()
-    except (ConnectionResetError, asyncio.CancelledError) as e:
-        logging.warning(f"Connection with {clientId} was closed: {e}")
+    except (ConnectionResetError, asyncio.CancelledError, OSError, ConnectionError) as e:
+        logging.info(f"Connection with {clientId} was closed: {e}")
     except Exception as e:
-        logging.error(f"Error handling client: {e}")
+        logging.info(f"Error handling client: {e}")
 
     finally:
         try:
             writer.close()
             await writer.wait_closed()
         except Exception as e:
-            logging.error(f"Closing connection with {clientId}: {e}")
+            logging.info(f"Closing connection with {clientId}: {e}")
 
         await stats.Disconnected(clientId)
 
