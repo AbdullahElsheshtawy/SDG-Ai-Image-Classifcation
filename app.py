@@ -173,17 +173,17 @@ async def HandleClient(reader, writer):
 
                 if elapsedTime >= 1.0:
                     startTime = time.time()
-    except (ConnectionResetError, asyncio.CancelledError, OSError) as e:
-        logging.warning(f"Connection with {clientId} was closed: {e}")
+    except (ConnectionResetError, asyncio.CancelledError, OSError, ConnectionError) as e:
+        logging.info(f"Connection with {clientId} was closed: {e}")
     except Exception as e:
-        logging.error(f"Error handling client: {e}")
+        logging.info(f"Error handling client: {e}")
 
     finally:
         try:
             writer.close()
             await writer.wait_closed()
         except Exception as e:
-            logging.error(f"Closing connection with {clientId}: {e}")
+            logging.info(f"Closing connection with {clientId}: {e}")
 
         await stats.Disconnected(clientId)
 
