@@ -97,7 +97,7 @@ async def fps_updater():
             stats.framesProcessed = 0
 
 
-async def processImage(imageData, clientId) -> str:
+async def processImage(imageData, clientId) -> bytes:
     try:
         image = Image.frombytes("RGB", (IMAGE_SIZE, IMAGE_SIZE), imageData)
         assert image.size == (IMAGE_SIZE, IMAGE_SIZE)
@@ -114,13 +114,13 @@ async def processImage(imageData, clientId) -> str:
 
         if isinstance(result, dict):
             result = result["output_0"]
-        result = result.numpy().item()
+        result: float = result.numpy().item()
 
         inferenceTime = (time.time() - startTime) * 1000
         prediction = "Recyclable" if result >= 0.5 else "Organic"
 
         await stats.FinishedProcessingImage(clientId, inferenceTime, prediction)
-        return prediction
+        return b'\x01' if result > 0.5 else b'\x00'
     except Exception as e:
         logging.error(f"Error Processing image: {e}")
         return None
@@ -134,6 +134,7 @@ async def HandleClient(reader, writer):
     startTime = time.time()
 
     await stats.Connected(clientId)
+    
 
     try:
         while True:
@@ -148,7 +149,7 @@ async def HandleClient(reader, writer):
                 imageBuffer = imageBuffer[IMAGE_SIZE_IN_BYTES:]
 
                 prediction = await processImage(imageData, clientId)
-                writer.write(f"{prediction}".encode())
+                writer.write(prediction)
                 await writer.drain()
                 elapsedTime = time.time() - startTime
 
