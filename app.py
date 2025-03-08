@@ -145,8 +145,8 @@ async def HandleClient(reader, writer):
 
     sock: socket.socket = writer.get_extra_info('socket')
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 5)
-    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 3)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 3)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
 
     imageBuffer = bytearray()
