@@ -28,8 +28,8 @@ constexpr int IMAGE_WIDTH = 128;
 constexpr int IMAGE_HEIGHT = 128;
 constexpr int IMAGE_SIZE_IN_BYTES = IMAGE_WIDTH * IMAGE_HEIGHT * 2;
 
-const char* ssid = "STC";
-const char* password = "ALLAHOAKBAR";
+const char* ssid = "AIIC";
+const char* password = "12345678";
 
 WiFiUDP udp{};
 IPAddress server_ip{};
