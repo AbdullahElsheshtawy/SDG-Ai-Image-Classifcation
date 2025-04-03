@@ -38,15 +38,15 @@ bool found_server = false;
 bool connected_to_server = false;
 
 
-enum class Prediction : uint8_t {
-  Organic = 0,
-  Recyclable = 1,
+enum Prediction : uint8_t {
+  ORGANIC = 0,
+  RECYCLABLE = 1,
 };
 
 const char* prediction_to_string(const Prediction prediction) {
-  if (prediction == Prediction::Organic) {
-    return "INFO: Image is Organic";
-  } else if (prediction == Prediction::Recyclable) {
+  if (prediction == ORGANIC) {
+    return "Organic";
+  } else if (prediction == RECYCLABLE) {
     return "Recyclable";
   } else {
     return "UNDEFINED";
@@ -111,8 +111,13 @@ void loop() {
     return;
   }
   capture_and_send_image();
-  const Prediction prediction = recieve_prediction();
-  Serial.printf("INFO: Image is %s\n", prediction_to_string(prediction));
+  char* prediction = "UNDEFINED";
+  if (const auto pred = recieve_prediction(); pred == ORGANIC) {
+    prediction = "Organic";
+  } else if (pred == RECYCLABLE) {
+    prediction = "Recyclable";
+  }
+  Serial.printf("INFO: Image is %s\n", prediction);
 }
 
 void wifi_connect() {
@@ -141,7 +146,7 @@ bool find_server() {
       if (const String ip_string(packet_buffer); ip_string.startsWith("SERVER_ANNOUNCE:")) {
         Serial.printf("INFO: IP String: %s\n", ip_string.c_str());
 
-        if (server_ip.fromString(ip_string)) {
+        if (server_ip.fromString(ip_string.substring(16))) {
           Serial.printf("INFO: Server discovered at: %s\n", ip_string.c_str());
           return true;
         } else {
@@ -175,9 +180,9 @@ void capture_and_send_image() {
   esp_camera_fb_return(frame_buffer);
 }
 
-Prediction recieve_prediction() {
+const int recieve_prediction() {
   while (!client.available()) delay(10);
   uint8_t prediction = 0xff;
   client.read(&prediction, 1);
-  return static_cast<Prediction>(prediction);
+  return prediction;
 }
