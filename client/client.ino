@@ -4,26 +4,27 @@
 #include <WiFiUdp.h>
 #include <esp_http_client.h>
 
-constexpr auto PWDN_GPIO_NUM = 32;
-constexpr auto RESET_GPIO_NUM = -1;
-constexpr auto XCLK_GPIO_NUM = 0;
-constexpr auto SIOD_GPIO_NUM = 26;
-constexpr auto SIOC_GPIO_NUM = 27;
-constexpr auto Y9_GPIO_NUM = 35;
-constexpr auto Y8_GPIO_NUM = 34;
-constexpr auto Y7_GPIO_NUM = 39;
-constexpr auto Y6_GPIO_NUM = 36;
-constexpr auto Y5_GPIO_NUM = 21;
-constexpr auto Y4_GPIO_NUM = 19;
-constexpr auto Y3_GPIO_NUM = 18;
-constexpr auto Y2_GPIO_NUM = 5;
-constexpr auto VSYNC_GPIO_NUM = 25;
-constexpr auto HREF_GPIO_NUM = 23;
-constexpr auto PCLK_GPIO_NUM = 22;
-constexpr auto FLASH_LED_GPIO_NUM = 4;
+constexpr int PWDN_GPIO_NUM = 32;
+constexpr int RESET_GPIO_NUM = -1;
+constexpr int XCLK_GPIO_NUM = 0;
+constexpr int SIOD_GPIO_NUM = 26;
+constexpr int SIOC_GPIO_NUM = 27;
+constexpr int Y9_GPIO_NUM = 35;
+constexpr int Y8_GPIO_NUM = 34;
+constexpr int Y7_GPIO_NUM = 39;
+constexpr int Y6_GPIO_NUM = 36;
+constexpr int Y5_GPIO_NUM = 21;
+constexpr int Y4_GPIO_NUM = 19;
+constexpr int Y3_GPIO_NUM = 18;
+constexpr int Y2_GPIO_NUM = 5;
+constexpr int VSYNC_GPIO_NUM = 25;
+constexpr int HREF_GPIO_NUM = 23;
+constexpr int PCLK_GPIO_NUM = 22;
+constexpr int FLASH_LED_GPIO_NUM = 4;
 
 constexpr int SERVER_PORT = 5001;
 constexpr int DISCOVERY_PORT = 8888;
+constexpr int CONNECTION_TIMEOUT = 5000; 
 constexpr int IMAGE_WIDTH = 128;
 constexpr int IMAGE_HEIGHT = 128;
 constexpr int IMAGE_SIZE_IN_BYTES = IMAGE_WIDTH * IMAGE_HEIGHT * 2;
@@ -36,7 +37,7 @@ IPAddress server_ip{};
 WiFiClient client{};
 bool found_server = false;
 bool connected_to_server = false;
-
+uint64_t last_connection_check = 0;
 
 enum Prediction : uint8_t {
   ORGANIC = 0,
@@ -98,38 +99,67 @@ void setup() {
 }
 
 void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("INFO: Wifi disconnected, reconnecting");
+    reset_connection_state();
+    wifi_connect();
+    return;
+  }
+
   if (!found_server) {
     found_server = find_server();
     Serial.printf("INFO: %s\n", found_server ? "Found server" : "Could not find server");
     delay(1000);
     return;
   }
+  
   if (!connected_to_server) {
     connected_to_server = connect_to_server();
     Serial.printf("INFO: %s\n", connected_to_server ? "Connected to Server" : "Could not connect to server");
+    if (!connected_to_server) {
+      found_server = false;
+    }
     delay(1000);
     return;
   }
-  capture_and_send_image();
-  char* prediction = "UNDEFINED";
-  if (const auto pred = recieve_prediction(); pred == ORGANIC) {
-    prediction = "Organic";
-  } else if (pred == RECYCLABLE) {
-    prediction = "Recyclable";
+
+  if (millis() - last_connection_check > CONNECTION_TIMEOUT) {
+    last_connection_check = millis();
+    if (!client.connected()) {
+      Serial.println("INFO: Lost connection to server, reconnecting");
+      reset_connection_state();
+      return;
+    }
   }
+  capture_and_send_image();
+  const uint8_t pred = recieve_prediction();
+  const char* prediction = prediction_to_string(static_cast<Prediction>(pred)); 
   Serial.printf("INFO: Image is %s\n", prediction);
 }
 
 void wifi_connect() {
   WiFi.begin(ssid, password);
   Serial.print("INFO: WiFi connecting");
-  while (WiFi.status() != WL_CONNECTED) {
+
+  uint attempt = 0;
+  while (WiFi.status() != WL_CONNECTED && attempt < 30) {
     delay(500);
     Serial.print(".");
+    attempt++;
   }
   Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
   Serial.print("INFO: WiFi connected: ");
   Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("ERROR: Failed to connect to wifi. will retry");
+  }
+}
+
+void reset_connection_state() {
+  found_server = false;
+  connected_to_server = false;
+  client.stop();
 }
 
 bool find_server() {
@@ -173,15 +203,43 @@ bool connect_to_server() {
 
 void capture_and_send_image() {
   auto* frame_buffer = esp_camera_fb_get();
+  if (!frame_buffer) {
+    Serial.println("ERROR: Failed to capture image");
+    return;
+  }
+
   if (frame_buffer->height * frame_buffer->width != IMAGE_WIDTH * IMAGE_HEIGHT) {
     Serial.printf("ERROR: Image size expected to be %zuX%zu but image is %%zuX%zu\n", IMAGE_WIDTH, IMAGE_HEIGHT, frame_buffer->width, frame_buffer->height);
   }
-  client.write(frame_buffer->buf, IMAGE_SIZE_IN_BYTES);
+  
+  if (client.connected()) {
+    client.write(frame_buffer->buf, IMAGE_SIZE_IN_BYTES);
+  } else {
+    Serial.println("ERROR: Client disconnected, cannot send image");
+    reset_connection_state();
+  }
   esp_camera_fb_return(frame_buffer);
 }
 
-const int recieve_prediction() {
-  while (!client.available()) delay(10);
+uint8_t recieve_prediction() {
+  const auto start_time = millis();
+  
+  while (!client.available()) {
+    if (millis() - start_time > CONNECTION_TIMEOUT) {
+      Serial.println("ERROR: Timeout waiting for prediction from server");
+      reset_connection_state();
+      break;
+    }
+
+    if (!client.connected()) {
+      Serial.println("ERROR: Client disconnected while waiting for prediction");
+      reset_connection_state();
+      break;
+    }
+
+    delay(10);
+  }
+
   uint8_t prediction = 0xff;
   client.read(&prediction, 1);
   return prediction;
