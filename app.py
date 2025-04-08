@@ -8,6 +8,7 @@ from quart import Quart, jsonify, render_template
 from collections import defaultdict
 from hypercorn.asyncio import Config, serve
 import socket
+import json
 
 app = Quart(__name__)
 
@@ -81,7 +82,23 @@ class Stats:
             "inferenceTime": self.lastInferenceTime,
             "connectionDetails": self.connectionDetails,
         }
+    
+    def Save(self, path: str = "data.json"):
+        data = {
+            "totalImagesProcessed": self.totalImagesProcessed,
+        }
 
+        with open(path, "w") as f:
+            json.dump(data, f, indent=4)
+
+    def Load(self, path: str = "data.json"):
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+                
+                self.totalImagesProcessed = data.get("totalImagesProcessed", 0)
+        except (FileNotFoundError, json.decoder.JSONDecodeError) as e:
+            logging.warning(f"Error loading data: {e}")       
 
 stats = Stats()
 
@@ -245,7 +262,8 @@ async def GetStats():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-
+    stats.Load()
+    
     @app.before_serving
     async def Startup():
         app.tcp_server = asyncio.create_task(RunServer())
@@ -269,3 +287,5 @@ if __name__ == "__main__":
     config.bind = ["0.0.0.0:5000"]
 
     asyncio.run(serve(app, config))
+    
+    stats.Save()
