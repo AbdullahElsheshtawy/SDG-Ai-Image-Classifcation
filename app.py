@@ -95,19 +95,31 @@ async def fps_updater():
             stats.fps = current_frames
             stats.framesProcessed = 0
 
-
-def RGB565ToRGB8(imageData: bytes) -> bytes:
-    arr = np.frombuffer(imageData, dtype=np.uint16)  # Load as uint16 array
-    r = (arr >> 11) & 0x1F
-    g = (arr >> 5) & 0x3F
-    b = arr & 0x1F
-
-    r = (r << 3).astype(np.uint8)  # Convert 5-bit to 8-bit
-    g = (g << 2).astype(np.uint8)  # Convert 6-bit to 8-bit
-    b = (b << 3).astype(np.uint8)  # Convert 5-bit to 8-bit
-
-    return np.stack((r, g, b), axis=-1)  # Stack channels to form an RGB image
-
+# yabn el lazina aaaaaaaa
+def RGB565ToRGB8(imageData: bytes) -> np.ndarray:
+    # Convert bytes to array of uint16
+    arr = np.frombuffer(imageData, dtype=np.uint16).reshape(IMAGE_SIZE, IMAGE_SIZE)
+    
+    # Apply byteswap (important for correct byte order)
+    arr = arr.byteswap(inplace=False)
+    
+    # Extract RGB components
+    r = ((arr >> 11) & 0x1F) << 3
+    g = ((arr >> 5) & 0x3F) << 2
+    b = (arr & 0x1F) << 3
+    
+    # Add in the lower bits for better color precision
+    r |= r >> 5
+    g |= g >> 6
+    b |= b >> 5
+    
+    # Create RGB array
+    rgb = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
+    rgb[:,:,0] = r.astype(np.uint8)
+    rgb[:,:,1] = g.astype(np.uint8)
+    rgb[:,:,2] = b.astype(np.uint8)
+    
+    return rgb
 
 async def processImage(imageData: bytes, clientId) -> bytes:
     try:
