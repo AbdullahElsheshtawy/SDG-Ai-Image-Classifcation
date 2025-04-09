@@ -1,4 +1,4 @@
-#SDG Ai Image Classification
+# SDG Ai Image Classification
 **Ai Image Classification Project**
 
 ---
