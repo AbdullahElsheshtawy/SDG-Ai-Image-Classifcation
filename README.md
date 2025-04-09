@@ -3,10 +3,10 @@
 
 ---
 ## Table of Contents
-- [Showcase](-showcase)
-- [Features](-features)
-- [Installation](-installation)
-- [DataSet Information](-dataset)
+- [Showcase](#showcase)
+- [Features](#features)
+- [Installation](#installation)
+- [DataSet Information](#dataset)
 ---
 ## Showcase
 ![](the_project_in_action.gif)
